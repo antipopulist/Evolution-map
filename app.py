@@ -33,6 +33,7 @@ EAT_RATE_MIN = 0.2
 EAT_RATE_MAX = 3.0
 EAT_RATE_BASELINE = 1.0
 EAT_RATE_MUTATION_STD = 0.15
+HISTORY_LIMIT = 500
 
 
 def hex_to_rgb(hex_color: str) -> np.ndarray:
@@ -676,9 +677,20 @@ def main() -> None:
 
     if "auto_step" not in st.session_state:
         st.session_state.auto_step = False
+    if "show_help" not in st.session_state:
+        st.session_state.show_help = True
+    if st.session_state.auto_step and st.session_state.show_help:
+        st.session_state.show_help = False
 
     with st.sidebar:
         sidebar_disabled = st.session_state.auto_step
+        st.header("Help")
+        if st.button(
+            "Show Guide",
+            disabled=sidebar_disabled,
+            help="Open the simulation guide.",
+        ):
+            st.session_state.show_help = True
         st.header("World")
         size = st.slider(
             "Map size",
@@ -979,6 +991,56 @@ def main() -> None:
 
     col1, col2 = st.columns([2, 1])
     with col1:
+        if st.session_state.show_help:
+            @st.dialog("Simulation Guide")
+            def guide_dialog() -> None:
+                st.subheader("How to run the simulation")
+                st.markdown(
+                    "\n".join(
+                        [
+                            "- Click `Start` to begin auto-step. Use `Stop` or `Stop Now` to pause.",
+                            "- Use `Step` for a single tick at a time.",
+                            "- Sidebar changes do not apply until you click `Regenerate World`.",
+                        ]
+                    )
+                )
+                st.subheader("Core mechanics")
+                st.markdown(
+                    "\n".join(
+                        [
+                            "- The world is a grid with plains/forest (food), plus water/mountains (impassable).",
+                            "- Food regenerates on passable tiles; agents move toward the best visible food.",
+                            "- Each step, agents eat up to their `eat rate`, gain energy, and lose energy to metabolism.",
+                            "- Reproduction happens when energy is above the threshold and a chance check passes.",
+                            "- Offspring inherit traits with mutation (speed, vision, base metabolism, eat rate).",
+                        ]
+                    )
+                )
+                st.subheader("Traits and tradeoffs")
+                st.markdown(
+                    "\n".join(
+                        [
+                            "- Higher speed/vision help find food but increase metabolism costs.",
+                            "- Higher eat rate helps in rich areas but also increases metabolism cost.",
+                            "- Base metabolism can mutate but is clamped to a minimum.",
+                        ]
+                    )
+                )
+                st.subheader("Predators")
+                st.markdown(
+                    "\n".join(
+                        [
+                            "- Predators move toward nearby prey within vision.",
+                            "- They gain energy on successful kills and can reproduce if fed.",
+                            "- Predator growth is limited by prey availability and carrying capacity.",
+                        ]
+                    )
+                )
+                if st.button("Close guide"):
+                    st.session_state.show_help = False
+                    rerun()
+
+            guide_dialog()
         state = st.session_state.state
         fig = render_map(state["world"], state["agents"], state["predators"])
         st.pyplot(fig, width="stretch", clear_figure=True)
@@ -1016,6 +1078,13 @@ def main() -> None:
 
         run_label = "Stop" if st.session_state.auto_step else "Start"
         st.button(run_label, on_click=toggle_auto_step, key="auto_step_toggle")
+        if st.button(
+            "Emergency Stop",
+            type="primary",
+            key="auto_step_stop_now",
+            disabled=not st.session_state.auto_step,
+        ):
+            st.session_state.auto_step = False
         auto_delay_ms = st.slider(
             "Auto-step delay (ms)", 50, 1000, 150, 50, help="Delay between auto steps."
         )
@@ -1049,6 +1118,8 @@ def main() -> None:
                     "pred_eat_rate": predator_traits["eat_rate"],
                 }
             )
+            if len(state["history"]) > HISTORY_LIMIT:
+                state["history"] = state["history"][-HISTORY_LIMIT:]
         st.line_chart(
             {
                 "Prey": [h["pop"] for h in state["history"]],
